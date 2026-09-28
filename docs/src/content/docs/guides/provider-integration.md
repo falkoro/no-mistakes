@@ -100,7 +100,7 @@ The GitHub PR step opens PRs with a fork-qualified head such as `your-user:featu
 Re-running `no-mistakes init` later preserves the stored fork URL unless you pass a new `--fork-url`.
 
 Fork routing currently requires both `origin` and `--fork-url` to be GitHub remotes with owner/repo paths.
-GitLab, Forgejo, Bitbucket, Azure DevOps, Gitea, and provider plugins do not implement fork MR/PR routing yet; if a legacy or manually edited repo record has `fork_url` set for those providers, PR creation skips instead of opening an unsafe self PR.
+GitLab, Forgejo, Bitbucket, Azure DevOps, Gitea, Cursor Origin, and provider plugins do not implement fork MR/PR routing yet; if a legacy or manually edited repo record has `fork_url` set for those providers, PR creation skips instead of opening an unsafe self PR.
 
 #### Workflow-file changes require the `workflow` scope
 
@@ -175,7 +175,7 @@ Get an API token from [Bitbucket account settings](https://bitbucket.org/account
 - PR mergeability polling
 - Merge-conflict auto-fix
 
-These are GitHub, GitLab, Forgejo, Azure DevOps, and provider plugins (declaring `mergeable_state`) only right now.
+These are GitHub, GitLab, Forgejo, Azure DevOps, Cursor Origin, and provider plugins (declaring `mergeable_state`) only right now.
 
 ## Azure DevOps
 
