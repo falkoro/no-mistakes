@@ -258,9 +258,9 @@ Creates or updates a pull request.
 
 **Skipped when:**
 - The branch is the effective PR base described in the scope rules at the top of this page
-- The upstream host is not GitHub, GitLab, Forgejo, Bitbucket Cloud (`bitbucket.org`), Azure DevOps (`dev.azure.com` / `*.visualstudio.com`), or Gitea
-- The provider CLI (`gh`, `glab`, `forgejo-axi`, or `tea`) is not installed for GitHub, GitLab, Forgejo, or Gitea (GitHub also skips when `gh` is missing from `PATH`)
-- The provider CLI is not authenticated for GitHub, GitLab, Forgejo, or Gitea (GitHub reports a timed-out or interrupted `gh auth status` separately from auth failure; either still skips)
+- The upstream host is not GitHub, GitLab, Forgejo, Bitbucket Cloud (`bitbucket.org`), Azure DevOps (`dev.azure.com` / `*.visualstudio.com`), Gitea, or Cursor Origin (`origin.cursor.com`)
+- The provider CLI (`gh`, `glab`, `forgejo-axi`, `tea`, or `origin`) is not installed for GitHub, GitLab, Forgejo, Gitea, or Cursor Origin (GitHub also skips when `gh` is missing from `PATH`)
+- The provider CLI is not authenticated for GitHub, GitLab, Forgejo, Gitea, or Cursor Origin (GitHub reports a timed-out or interrupted `gh auth status` separately from auth failure; either still skips)
 - Bitbucket Cloud credentials are missing (`NO_MISTAKES_BITBUCKET_EMAIL` or `NO_MISTAKES_BITBUCKET_API_TOKEN`)
 - The `az` CLI with the `azure-devops` extension is not installed or not authenticated for Azure DevOps
 - A legacy or manually edited non-GitHub repo record has `fork_url` set, because fork MR/PR routing is currently GitHub-only
@@ -322,9 +322,9 @@ The comment is intentionally data only. It does not declare any step required, p
 
 ## CI
 
-Monitors PR health after creation and auto-fixes CI failures. Mergeability polling and merge-conflict handling apply to GitHub, GitLab, Forgejo, and Azure DevOps.
+Monitors PR health after creation and auto-fixes CI failures. Mergeability polling and merge-conflict handling apply to GitHub, GitLab, Forgejo, Azure DevOps, and Cursor Origin.
 
-**Active for GitHub, GitLab, Forgejo, Bitbucket Cloud (`bitbucket.org`), Azure DevOps (`dev.azure.com` / `*.visualstudio.com`), and Gitea**.
+**Active for GitHub, GitLab, Forgejo, Bitbucket Cloud (`bitbucket.org`), Azure DevOps (`dev.azure.com` / `*.visualstudio.com`), Gitea, and Cursor Origin**.
 
 - GitHub requires `gh` CLI, installed and authenticated, version >= 2.50 (older versions reject the `gh pr checks --json` call the monitor reads checks with).
 - GitLab requires `glab` CLI, installed and authenticated.
@@ -339,15 +339,15 @@ Monitors PR health after creation and auto-fixes CI failures. Mergeability polli
 - Continues its normal monitoring loop until the PR is merged, closed, declined, or the configured `ci_timeout` idle window elapses, then parks at an approval gate instead of ending the run
 - If the provider check read keeps failing (6 consecutive polls while the PR is still open), parks at an ask-user approval gate instead of spinning invisibly to `ci_timeout`; the provider-neutral finding names the provider CLI or credentials and includes the underlying error (for GitHub, `gh` < 2.50 rejecting `gh pr checks --json`), and the streak resets as soon as one read succeeds
 - The [`ci_timeout` reference](/no-mistakes/reference/global-config/#ci_timeout) owns idle re-arming, unlimited monitoring, and fail-closed reconciliation while that gate is parked
-- On GitHub, GitLab, Forgejo, and Azure DevOps, polls provider mergeability alongside CI checks while the PR remains open
+- On GitHub, GitLab, Forgejo, Azure DevOps, and Cursor Origin, polls provider mergeability alongside CI checks while the PR remains open
 - On GitHub, combines the exact current PR head commit's check rollup with Actions workflow runs for that same commit, so a workflow rejected during validation before it creates a job or check-run still blocks readiness
 - On GitHub, collapses repeated same-name runs of one workflow to the newest run that provider timestamps or Actions run identity can order. Independent workflows and same-named commit status contexts remain separate requirements, and check runs whose order cannot be established remain visible so readiness fails closed
 - While the PR stays open, the TUI and terminal title show `Checks passed` once CI readiness is established and known mergeability is clear, and `no-mistakes axi` returns `outcome: checks-passed` with successful-output reporting instructions so agents can summarize the run, ask the user to review and merge, and list any pipeline fixes instead of waiting
 - An empty forge check list is never treated as green unless the trusted default-branch config declares [`no_ci: true`](/no-mistakes/reference/repo-config/#no_ci). That declaration is positive durable evidence the repository intentionally has no CI; absence means CI is expected and delayed registration stays not-ready. If checks still appear on a declared no-CI repo, their actual states are honored
-- If the [PR base branch](/no-mistakes/reference/repo-config/#prbase_branch) moves after `checks-passed`, keeps watching the same PR; a clean behind PR needs no action, while an actual GitHub, GitLab, Forgejo, or Azure DevOps merge conflict is auto-fixed by rebasing onto the PR base branch and re-pushing through the force-push safety guard
+- If the [PR base branch](/no-mistakes/reference/repo-config/#prbase_branch) moves after `checks-passed`, keeps watching the same PR; a clean behind PR needs no action, while an actual GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin merge conflict is auto-fixed by rebasing onto the PR base branch and re-pushing through the force-push safety guard
 - Once the PR exists, its actual forge base branch (read live from the provider) takes precedence over the configured `pr.base_branch` for merge-conflict repair and base-branch tip monitoring, so a resumed run is not misled by a base-branch config change made after the PR was created
 - The ready signal clears if checks start running again, new failures appear, workflow-run discovery fails or reports an unknown state, provider state otherwise becomes uncertain, or the PR is merged, closed, or declined
-- If CI failures or, on GitHub, GitLab, Forgejo, or Azure DevOps, a merge conflict are already known while other checks are still pending: waits for all checks to finish before attempting an auto-fix. On GitHub, a workflow run held for maintainer approval is not waited on here; [`ci.rerun_transient`](/no-mistakes/reference/repo-config/#cirerun_transient) owns how that hold is handled
+- If CI failures or, on GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin, a merge conflict are already known while other checks are still pending: waits for all checks to finish before attempting an auto-fix. On GitHub, a workflow run held for maintainer approval is not waited on here; [`ci.rerun_transient`](/no-mistakes/reference/repo-config/#cirerun_transient) owns how that hold is handled
 - Once every check has finished, classifies each terminally failed check by the provider's own reported outcome before anything escalates; [`ci.rerun_transient`](/no-mistakes/reference/repo-config/#cirerun_transient) owns which outcomes count as the provider reporting itself
 - On GitHub, a positive transient rerun budget also enables structural detection of jobs that failed before any repository step ran because their setup/action-resolution phase failed, such as during a "Failed to resolve action download info" / HTTP 503 action-download outage. Detection reads the job's own setup-step conclusion (never log text) and fails closed, so an unreadable job or a real test or lint failure remains a genuine failure
 - On GitHub, when the configured budget authorizes a rerun, re-runs such a check for the same commit instead of escalating it, targeting the job identified by a job link or the whole workflow identified by a cancelled run link, and naming each rerun in the step log so a run waiting on one is visible in the TUI and `axi`
@@ -364,15 +364,15 @@ Monitors PR health after creation and auto-fixes CI failures. Mergeability polli
 - Whenever a repair revalidates - either because the setting requires it or because continuity cannot be proven - restarts at Review only: Intent and Rebase keep their results, steps already skipped for the run stay skipped, the run id is unchanged, and the durable auto-fix attempt count carries across. Earlier cycles remain in the run's round history; the step's own status shows the latest cycle. The fresh Review cycle does not inherit the superseded cycle's outstanding finding carry set
 - Bounds that CI-fix agent with [`agent_timeout`](/no-mistakes/reference/global-config/#agent_timeout): an expired budget cancels the agent and fails the attempt with a timeout diagnostic rather than leaving the run active indefinitely, and a late successful return after the deadline is not committed
 - If the CI-fix agent exhausts that budget, pauses for user approval instead of re-issuing the same request on the next poll. A budget burn is not transient - repeating it costs another full budget - so the remaining auto-fix attempts are left for the user to spend deliberately with a fix response. The finding carries the measured timeout diagnostic. When the timed-out agent left uncommitted work in the run worktree, the finding names that worktree's path. When the agent already committed a repair, that head is recorded locally for custody and is not published; an unfinished rebase or merge is reported instead of recorded. A later fix round that adds nothing to a recorded repair still routes it through the repair rule above, so it revalidates from Review rather than staying behind the published head. Ordinary (non-timeout) fix failures keep retrying as before
-- On GitHub, GitLab, Forgejo, or Azure DevOps merge conflict: asks the agent to rebase onto the latest PR base branch tip and make the smallest correct root-cause fix for the conflicts, using user intent when available
-- If both CI failures and a GitHub, GitLab, Forgejo, or Azure DevOps merge conflict are present: fixes both in the same attempt
+- On GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin merge conflict: asks the agent to rebase onto the latest PR base branch tip and make the smallest correct root-cause fix for the conflicts, using user intent when available
+- If both CI failures and a GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin merge conflict are present: fixes both in the same attempt
 - If a fix attempt produces no changes: a trusted conclusion that the failure is not caused by the PR's code parks the selected findings as `ask-user` immediately and reports the agent's summary. Otherwise the step re-observes the settled checks and reports the same findings again, so the executor retries while `auto_fix.ci` attempts remain and parks when they are spent - the same follow-up every other step's fix round gets
 - The executor counts each automatic fix attempt durably in the step's round history when it starts, so revalidation or a daemon restart cannot reset the configured limit
 - Exits cleanly when the PR is merged, closed, or declined
 - If the idle timeout is reached while the PR is still open: pauses for user approval, even when CI checks are currently healthy
-- If the idle timeout is reached while CI failures or, on GitHub, GitLab, Forgejo, or Azure DevOps, a merge conflict are still known: pauses for user approval with findings for the remaining issues
-- If the idle timeout is reached while GitHub, GitLab, Forgejo, or Azure DevOps PR mergeability is still unresolved: pauses for user approval with a finding describing the unresolved mergeability state
-- If CI failures or a GitHub, GitLab, Forgejo, or Azure DevOps merge conflict persist after the auto-fix limit: pauses for user approval with findings listing each failing check and/or the merge conflict
+- If the idle timeout is reached while CI failures or, on GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin, a merge conflict are still known: pauses for user approval with findings for the remaining issues
+- If the idle timeout is reached while GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin PR mergeability is still unresolved: pauses for user approval with a finding describing the unresolved mergeability state
+- If CI failures or a GitHub, GitLab, Forgejo, Azure DevOps, or Cursor Origin merge conflict persist after the auto-fix limit: pauses for user approval with findings listing each failing check and/or the merge conflict
 
 **Default auto-fix limit:** `3` total CI auto-fix attempts.
 

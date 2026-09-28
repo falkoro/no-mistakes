@@ -122,6 +122,8 @@ providers:
     draft_pull_requests: false
   azuredevops:
     draft_pull_requests: false
+  origin:
+    draft_pull_requests: false
 ```
 
 ## Fields
@@ -214,7 +216,7 @@ The configured branch is used for PR creation and pipeline integration and chang
 When unset and without a per-run override, no-mistakes targets the repository's forge default branch.
 
 PR lookup matches an existing PR by branch alone, never filtered by base, so a `pr.base_branch` change after a PR was opened updates that PR instead of opening a duplicate against the new base.
-A per-run `--base-branch` override is different: if the run's already-open PR targets another branch, the PR step retargets that PR (GitHub, GitLab, and Gitea) so title, body, and CI follow the requested integration branch. A discovered PR that is not the run's persisted identity, or a provider that cannot retarget, fails closed rather than moving another review object. See [PR](/no-mistakes/reference/pipeline-steps/#pr).
+A per-run `--base-branch` override is different: if the run's already-open PR targets another branch, the PR step retargets that PR (GitHub, GitLab, Gitea, and Cursor Origin) so title, body, and CI follow the requested integration branch. A discovered PR that is not the run's persisted identity, or a provider that cannot retarget, fails closed rather than moving another review object. See [PR](/no-mistakes/reference/pipeline-steps/#pr).
 Once a PR exists, its actual forge base branch is authoritative over `pr.base_branch` for the CI step's merge-conflict auto-fix and base-branch tip monitoring, protecting a resumed run from a configuration change made after the PR was created.
 
 Because this setting controls where a PR lands, a pushed branch cannot redirect its own PR target by changing `pr.base_branch`.
@@ -944,6 +946,15 @@ Override the [global Bitbucket draft setting](/no-mistakes/reference/global-conf
 ### providers.azuredevops.draft_pull_requests
 
 Override the [global Azure DevOps draft setting](/no-mistakes/reference/global-config/#providersazuredevopsdraft_pull_requests) for this repo.
+
+| | |
+|---|---|
+| Type | `bool` |
+| Default | Inherits from global (default `false`) |
+
+### providers.origin.draft_pull_requests
+
+Override the [global Cursor Origin draft setting](/no-mistakes/reference/global-config/#providersorigindraft_pull_requests) for this repo.
 
 | | |
 |---|---|
