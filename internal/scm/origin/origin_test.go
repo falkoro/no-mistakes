@@ -370,18 +370,33 @@ func TestGetPRContentRejectsUnprovenResponses(t *testing.T) {
 	}
 }
 
-func TestGetMergeableStateConflict(t *testing.T) {
+// Every Origin mergeability shape is a known state: only an explicit conflict
+// signal is CONFLICTING, and anything else must not hold the CI monitor pending.
+func TestGetMergeableStateShapes(t *testing.T) {
 	t.Parallel()
 
-	host := New(originTestCmdFactory(map[string]originTestResponse{
-		"origin pr view 6 --repo owner/repo --json " + viewJSONFields: {
-			stdout: `{"number":6,"url":"https://cursor.com/codebase/owner/repo/pull/6","status":"open","mergeability":{"mergeable":false,"hasMergeConflicts":true}}`,
-		},
-	}), nil, "owner/repo", false)
+	for _, tc := range []struct {
+		mergeability string
+		want         scm.MergeableState
+	}{
+		{`{"mergeable":true,"hasMergeConflicts":false}`, scm.MergeableOK},
+		{`{"mergeable":false,"hasMergeConflicts":true}`, scm.MergeableConflict},
+		{`{"mergeable":false,"hasMergeConflicts":false}`, scm.MergeableOK},
+		{`{"mergeable":false}`, scm.MergeableOK},
+		{`{"verdict":"blocked","evaluations":[],"blockers":[]}`, scm.MergeableOK},
+		{`{"verdict":"conflicts","evaluations":[],"blockers":[]}`, scm.MergeableConflict},
+		{`{}`, scm.MergeableOK},
+	} {
+		host := New(originTestCmdFactory(map[string]originTestResponse{
+			"origin pr view 6 --repo owner/repo --json " + viewJSONFields: {
+				stdout: `{"number":6,"url":"https://cursor.com/codebase/owner/repo/pull/6","status":"open","mergeability":` + tc.mergeability + `}`,
+			},
+		}), nil, "owner/repo", false)
 
-	got, err := host.GetMergeableState(context.Background(), &scm.PR{Number: "6"})
-	if err != nil || got != scm.MergeableConflict {
-		t.Fatalf("GetMergeableState() = (%q, %v), want CONFLICTING", got, err)
+		got, err := host.GetMergeableState(context.Background(), &scm.PR{Number: "6"})
+		if err != nil || got != tc.want {
+			t.Errorf("GetMergeableState(%s) = (%q, %v), want %q", tc.mergeability, got, err, tc.want)
+		}
 	}
 }
 

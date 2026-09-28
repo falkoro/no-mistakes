@@ -181,10 +181,7 @@ func detectCursorOrigin(remote string) bool {
 	if isCursorOriginGitHost(ExtractHost(remote)) {
 		return true
 	}
-	if detectCursorOriginWeb(remote) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(remote), "origin.cursor.com")
+	return detectCursorOriginWeb(remote)
 }
 
 func detectCursorOriginWeb(remote string) bool {

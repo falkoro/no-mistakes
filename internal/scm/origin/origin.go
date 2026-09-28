@@ -167,8 +167,8 @@ type originPR struct {
 }
 
 type originMergeability struct {
-	Mergeable         *bool `json:"mergeable"`
-	HasMergeConflicts *bool `json:"hasMergeConflicts"`
+	HasMergeConflicts *bool  `json:"hasMergeConflicts"`
+	Verdict           string `json:"verdict"`
 }
 
 func (p originPR) number() string {
@@ -378,13 +378,11 @@ func (h *Host) GetMergeableState(ctx context.Context, pr *scm.PR) (scm.Mergeable
 	if err != nil {
 		return "", err
 	}
-	if view.Mergeability.HasMergeConflicts != nil && *view.Mergeability.HasMergeConflicts {
+	m := view.Mergeability
+	if (m.HasMergeConflicts != nil && *m.HasMergeConflicts) || strings.Contains(strings.ToLower(m.Verdict), "conflict") {
 		return scm.MergeableConflict, nil
 	}
-	if view.Mergeability.Mergeable != nil && *view.Mergeability.Mergeable {
-		return scm.MergeableOK, nil
-	}
-	return scm.MergeablePending, nil
+	return scm.MergeableOK, nil
 }
 
 type originCheck struct {
