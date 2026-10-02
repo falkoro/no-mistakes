@@ -160,8 +160,6 @@ func detectLegacyProviderHost(host string) Provider {
 		// Covers dev.azure.com, ssh.dev.azure.com, {org}.visualstudio.com, and
 		// the legacy vs-ssh.visualstudio.com SSH host.
 		return ProviderAzureDevOps
-	case strings.Contains(host, "origin.cursor.com"):
-		return ProviderOrigin
 	default:
 		return ProviderUnknown
 	}
