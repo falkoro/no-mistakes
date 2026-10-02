@@ -282,7 +282,8 @@ origin auth status
 - CI check polling through `origin pr checks` until the PR is merged or closed,
   or the configured `ci_timeout` idle window elapses.
 - Mergeability polling from `origin pr view --json mergeability`, and
-  merge-conflict auto-fix when Origin reports `hasMergeConflicts`.
+  merge-conflict auto-fix when Origin reports `hasMergeConflicts`, conflicted
+  paths, or a conflict verdict under the nested `mergeability.mergeability`.
 
 **What you don't get (yet):**
 

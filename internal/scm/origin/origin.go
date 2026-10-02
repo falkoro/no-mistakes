@@ -166,9 +166,16 @@ type originPR struct {
 	Mergeability originMergeability `json:"mergeability"`
 }
 
+// originMergeability mirrors the live `pr view --json mergeability` shape:
+// the ruleset verdict is nested one level down under mergeability.mergeability,
+// next to the top-level mergeable/hasMergeConflicts booleans.
 type originMergeability struct {
-	HasMergeConflicts *bool  `json:"hasMergeConflicts"`
-	Verdict           string `json:"verdict"`
+	Mergeable         *bool    `json:"mergeable"`
+	HasMergeConflicts *bool    `json:"hasMergeConflicts"`
+	ConflictedPaths   []string `json:"conflictedPaths"`
+	Mergeability      struct {
+		Verdict string `json:"verdict"`
+	} `json:"mergeability"`
 }
 
 func (p originPR) number() string {
@@ -379,7 +386,17 @@ func (h *Host) GetMergeableState(ctx context.Context, pr *scm.PR) (scm.Mergeable
 		return "", err
 	}
 	m := view.Mergeability
-	if (m.HasMergeConflicts != nil && *m.HasMergeConflicts) || strings.Contains(strings.ToLower(m.Verdict), "conflict") {
+	if m.HasMergeConflicts != nil && *m.HasMergeConflicts {
+		return scm.MergeableConflict, nil
+	}
+	if m.Mergeable != nil && *m.Mergeable {
+		return scm.MergeableOK, nil
+	}
+	// hasMergeConflicts absent or false and not mergeable: only an explicit
+	// conflict signal is CONFLICTING. Other blockers (draft, rule failure,
+	// nothing to merge) are not conflicts and must not hold the CI monitor
+	// pending, so they read as MERGEABLE.
+	if len(m.ConflictedPaths) > 0 || strings.Contains(strings.ToLower(m.Mergeability.Verdict), "conflict") {
 		return scm.MergeableConflict, nil
 	}
 	return scm.MergeableOK, nil
