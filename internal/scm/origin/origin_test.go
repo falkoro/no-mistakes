@@ -329,7 +329,7 @@ func TestGetPRStateMergedWithObjectMergedBy(t *testing.T) {
 
 	host := New(originTestCmdFactory(map[string]originTestResponse{
 		"origin pr view 14 --repo owner/repo --json " + viewJSONFields: {
-			stdout: `{"number":14,"url":"https://cursor.com/codebase/owner/repo/pull/14","status":"merged","title":"t","description":"d","headRef":"feat","baseRef":"master","headSha":"abc","mergeCommitSha":"def","mergedAt":"2026-09-24T20:56:12Z","mergedBy":{"id":"user_1"},"mergeability":{"verdict":"blocked","evaluations":[],"blockers":[]}}`,
+			stdout: `{"number":14,"url":"https://cursor.com/codebase/owner/repo/pull/14","status":"merged","title":"t","description":"d","headRef":"feat","baseRef":"master","headSha":"abc","mergeCommitSha":"def","mergedAt":"2026-09-24T20:56:12Z","mergedBy":{"id":"user_1"},"mergeability":{"mergeable":false,"hasMergeConflicts":false,"mergeability":{"verdict":"blocked","evaluations":[],"blockers":[{"kind":"change-already-merged"}]}}}`,
 		},
 	}), nil, "owner/repo", false)
 
@@ -383,8 +383,16 @@ func TestGetMergeableStateShapes(t *testing.T) {
 		{`{"mergeable":false,"hasMergeConflicts":true}`, scm.MergeableConflict},
 		{`{"mergeable":false,"hasMergeConflicts":false}`, scm.MergeableOK},
 		{`{"mergeable":false}`, scm.MergeableOK},
-		{`{"verdict":"blocked","evaluations":[],"blockers":[]}`, scm.MergeableOK},
-		{`{"verdict":"conflicts","evaluations":[],"blockers":[]}`, scm.MergeableConflict},
+		{`{"mergeable":true}`, scm.MergeableOK},
+		// Live shape: the verdict is nested under mergeability.mergeability.
+		{`{"mergeable":false,"hasMergeConflicts":false,"conflictedPaths":[],"mergeability":{"verdict":"blocked","evaluations":[],"blockers":[{"kind":"change-is-draft"}]}}`, scm.MergeableOK},
+		{`{"mergeable":true,"hasMergeConflicts":false,"conflictedPaths":[],"mergeability":{"verdict":"mergeable","evaluations":[],"blockers":[]}}`, scm.MergeableOK},
+		{`{"mergeable":false,"hasMergeConflicts":true,"conflictedPaths":["a.go"],"mergeability":{"verdict":"blocked","blockers":[]}}`, scm.MergeableConflict},
+		// hasMergeConflicts absent: fall back to mergeable, conflictedPaths and the nested verdict.
+		{`{"mergeable":false,"mergeability":{"verdict":"conflicts"}}`, scm.MergeableConflict},
+		{`{"mergeable":false,"conflictedPaths":["a.go"],"mergeability":{"verdict":"blocked"}}`, scm.MergeableConflict},
+		{`{"mergeable":false,"mergeability":{"verdict":"blocked"}}`, scm.MergeableOK},
+		{`{"mergeable":true,"mergeability":{"verdict":"mergeable"}}`, scm.MergeableOK},
 		{`{}`, scm.MergeableOK},
 	} {
 		host := New(originTestCmdFactory(map[string]originTestResponse{
