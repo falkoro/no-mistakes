@@ -36,6 +36,9 @@ func TestDetectProvider(t *testing.T) {
 		{"git@origin.cursor.com:owner/repo.git", ProviderOrigin},
 		{"https://cursor.com/codebase/owner/repo/pull/6", ProviderOrigin},
 		{"https://cursor.com/changelog", ProviderUnknown},
+		{"https://origin.cursor.com.example.net/owner/repo.git", ProviderUnknown},
+		{"https://notorigin.cursor.com.evil.test/owner/repo.git", ProviderUnknown},
+		{"https://cursor.com.example.net/codebase/owner/repo/pull/6", ProviderUnknown},
 		{"https://example.com/user/repo.git", ProviderUnknown},
 	}
 

@@ -7,11 +7,12 @@
 //   - `origin pr create` defaults to `--status draft`. no-mistakes' other
 //     providers open ready PRs unless draft_pull_requests is set, so CreatePR
 //     always passes `--status` explicitly (open or draft).
-//   - `origin pr create` has no `--json` flag. CreatePR re-lists by head
-//     branch for a structured result; scraping create's human-readable stdout
-//     is only a last-resort fallback (the body can itself contain URLs).
+//   - `origin pr create` has no `--json` flag. CreatePR takes the PR URL the
+//     CLI prints on create, and only without one re-lists by head branch and
+//     picks the newest live PR.
 //   - Origin treats drafts as status=draft, not open. FindPR lists
-//     `--state all` and accepts open or draft so a draft opened by a previous
+//     `--state open` and `--state draft` separately (closed PR history cannot
+//     hide a live PR) and accepts open or draft so a draft opened by a previous
 //     run is updated instead of duplicated.
 //   - The daemon's detached bare-gate repo has no Origin remote, so every
 //     invocation carries `--repo owner/repo` (the same reason gh/tea do).
@@ -216,10 +217,49 @@ func originPRLive(status string) bool {
 }
 
 func (h *Host) FindPR(ctx context.Context, branch, base string) (*scm.PR, error) {
+	base = strings.TrimSpace(base)
+	// Listing each live state separately keeps a branch's closed and merged
+	// PR history from crowding a live PR out of the --limit window.
+	var newest *scm.PR
+	for _, state := range []string{"open", "draft"} {
+		items, err := h.listPRs(ctx, branch, state)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if !originPRLive(item.Status) {
+				continue
+			}
+			if strings.TrimSpace(item.HeadRef) != branch {
+				continue
+			}
+			if base != "" && strings.TrimSpace(item.BaseRef) != base {
+				continue
+			}
+			pr, err := item.toPR()
+			if err != nil {
+				return nil, err
+			}
+			if h.repo != "" {
+				if slug := RepoSlug(pr.URL); slug != "" && !strings.EqualFold(slug, h.repo) {
+					return nil, fmt.Errorf("origin PR URL repository %q does not match %q", slug, h.repo)
+				}
+			}
+			// Several live PRs can share a head; the newest is the one a
+			// create just made, so never rely on list order.
+			if newest == nil || prNumber(pr) > prNumber(newest) {
+				newest = pr
+			}
+		}
+	}
+	return newest, nil
+}
+
+func (h *Host) listPRs(ctx context.Context, branch, state string) ([]originPR, error) {
 	args := append([]string{"pr", "list"}, h.repoArgs()...)
 	args = append(args,
 		"--head", branch,
-		"--state", "all",
+		"--state", state,
 		"--json", listJSONFields,
 		"--limit", "100",
 	)
@@ -238,29 +278,12 @@ func (h *Host) FindPR(ctx context.Context, branch, base string) (*scm.PR, error)
 	if items == nil {
 		return nil, errors.New("origin pr list: expected JSON array")
 	}
-	base = strings.TrimSpace(base)
-	for _, item := range items {
-		if !originPRLive(item.Status) {
-			continue
-		}
-		if strings.TrimSpace(item.HeadRef) != branch {
-			continue
-		}
-		if base != "" && strings.TrimSpace(item.BaseRef) != base {
-			continue
-		}
-		pr, err := item.toPR()
-		if err != nil {
-			return nil, err
-		}
-		if h.repo != "" {
-			if slug := RepoSlug(pr.URL); slug != "" && !strings.EqualFold(slug, h.repo) {
-				return nil, fmt.Errorf("origin PR URL repository %q does not match %q", slug, h.repo)
-			}
-		}
-		return pr, nil
-	}
-	return nil, nil
+	return items, nil
+}
+
+func prNumber(pr *scm.PR) int {
+	n, _ := strconv.Atoi(pr.Number)
+	return n
 }
 
 func (h *Host) CreatePR(ctx context.Context, branch, base string, content scm.PRContent) (*scm.PR, error) {
@@ -282,18 +305,18 @@ func (h *Host) CreatePR(ctx context.Context, branch, base string, content scm.PR
 	if err != nil {
 		return nil, fmt.Errorf("origin pr create: %s: %w", strings.TrimSpace(string(out)), err)
 	}
-	if pr, ferr := h.FindPR(ctx, branch, base); ferr == nil && pr != nil {
-		return pr, nil
+	// The URL the CLI printed identifies the PR this create made; only without
+	// one fall back to the newest live PR for the branch.
+	if url := extractOriginPRURL(out); url != "" {
+		num, _ := parseOriginPRURL(url)
+		return &scm.PR{Number: num, URL: url, BaseBranch: base}, nil
 	}
-	url := extractOriginPRURL(out)
-	if url == "" {
+	pr, err := h.FindPR(ctx, branch, base)
+	if err != nil {
+		return nil, err
+	}
+	if pr == nil {
 		return nil, fmt.Errorf("origin pr create: could not determine PR URL from output: %s", strings.TrimSpace(string(out)))
-	}
-	pr := &scm.PR{URL: url}
-	if num, nerr := parseOriginPRURL(url); nerr == nil {
-		pr.Number = num
-	} else if num, nerr := scm.ExtractPRNumber(url); nerr == nil {
-		pr.Number = num
 	}
 	return pr, nil
 }
@@ -398,6 +421,10 @@ func (h *Host) GetMergeableState(ctx context.Context, pr *scm.PR) (scm.Mergeable
 	// pending, so they read as MERGEABLE.
 	if len(m.ConflictedPaths) > 0 || strings.Contains(strings.ToLower(m.Mergeability.Verdict), "conflict") {
 		return scm.MergeableConflict, nil
+	}
+	// No mergeability result at all is unproven, never MERGEABLE.
+	if m.Mergeable == nil && m.HasMergeConflicts == nil && m.Mergeability.Verdict == "" {
+		return scm.MergeableUnknown, nil
 	}
 	return scm.MergeableOK, nil
 }

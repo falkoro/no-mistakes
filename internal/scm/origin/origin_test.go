@@ -144,8 +144,10 @@ func TestAvailableOK(t *testing.T) {
 	}
 }
 
-func listKey(head string) string {
-	return "origin pr list --repo owner/repo --head " + head + " --state all --json " + listJSONFields + " --limit 100"
+func listKey(head string) string { return listKeyState(head, "open") }
+
+func listKeyState(head, state string) string {
+	return "origin pr list --repo owner/repo --head " + head + " --state " + state + " --json " + listJSONFields + " --limit 100"
 }
 
 func TestFindPRMatchesOpenAndDraft(t *testing.T) {
@@ -393,7 +395,7 @@ func TestGetMergeableStateShapes(t *testing.T) {
 		{`{"mergeable":false,"conflictedPaths":["a.go"],"mergeability":{"verdict":"blocked"}}`, scm.MergeableConflict},
 		{`{"mergeable":false,"mergeability":{"verdict":"blocked"}}`, scm.MergeableOK},
 		{`{"mergeable":true,"mergeability":{"verdict":"mergeable"}}`, scm.MergeableOK},
-		{`{}`, scm.MergeableOK},
+		{`{}`, scm.MergeableUnknown},
 	} {
 		host := New(originTestCmdFactory(map[string]originTestResponse{
 			"origin pr view 6 --repo owner/repo --json " + viewJSONFields: {
@@ -405,6 +407,66 @@ func TestGetMergeableStateShapes(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("GetMergeableState(%s) = (%q, %v), want %q", tc.mergeability, got, err, tc.want)
 		}
+	}
+}
+
+func TestGetMergeableStateOmittedFieldIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	host := New(originTestCmdFactory(map[string]originTestResponse{
+		"origin pr view 6 --repo owner/repo --json " + viewJSONFields: {
+			stdout: `{"number":6,"url":"https://cursor.com/codebase/owner/repo/pull/6","status":"open"}`,
+		},
+	}), nil, "owner/repo", false)
+	got, err := host.GetMergeableState(context.Background(), &scm.PR{Number: "6"})
+	if err != nil || got != scm.MergeableUnknown {
+		t.Fatalf("GetMergeableState() = (%q, %v), want UNKNOWN", got, err)
+	}
+}
+
+func TestFindPRFindsDraftWhenOpenListIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	host := New(originTestCmdFactory(map[string]originTestResponse{
+		listKeyState("feature/x", "open"): {stdout: `[]`},
+		listKeyState("feature/x", "draft"): {
+			stdout: `[{"number":5,"url":"https://cursor.com/codebase/owner/repo/pull/5","status":"draft","headRef":"feature/x","baseRef":"master"}]`,
+		},
+	}), nil, "owner/repo", false)
+	pr, err := host.FindPR(context.Background(), "feature/x", "master")
+	if err != nil || pr == nil || pr.Number != "5" {
+		t.Fatalf("FindPR() = (%+v, %v), want draft PR #5 independent of closed history", pr, err)
+	}
+}
+
+func TestFindPRPicksNewestLiveMatch(t *testing.T) {
+	t.Parallel()
+
+	host := New(originTestCmdFactory(map[string]originTestResponse{
+		listKey("feature/x"): {
+			stdout: `[{"number":3,"url":"https://cursor.com/codebase/owner/repo/pull/3","status":"open","headRef":"feature/x","baseRef":"master"},{"number":12,"url":"https://cursor.com/codebase/owner/repo/pull/12","status":"draft","headRef":"feature/x","baseRef":"master"}]`,
+		},
+	}), nil, "owner/repo", false)
+	pr, err := host.FindPR(context.Background(), "feature/x", "master")
+	if err != nil || pr == nil || pr.Number != "12" {
+		t.Fatalf("FindPR() = (%+v, %v), want newest PR #12", pr, err)
+	}
+}
+
+func TestCreatePRPrefersPrintedURLOverList(t *testing.T) {
+	t.Parallel()
+
+	host := New(originTestCmdFactory(map[string]originTestResponse{
+		"origin pr create --repo owner/repo --head feature/x --base master --status open --title feat: x --body-file -": {
+			stdout: "https://cursor.com/codebase/owner/repo/pull/9\n",
+		},
+		listKey("feature/x"): {
+			stdout: `[{"number":2,"url":"https://cursor.com/codebase/owner/repo/pull/2","status":"open","headRef":"feature/x","baseRef":"master"}]`,
+		},
+	}), nil, "owner/repo", false)
+	pr, err := host.CreatePR(context.Background(), "feature/x", "master", scm.PRContent{Title: "feat: x", Body: "body"})
+	if err != nil || pr == nil || pr.Number != "9" {
+		t.Fatalf("CreatePR() = (%+v, %v), want created PR #9", pr, err)
 	}
 }
 
@@ -461,6 +523,11 @@ func originTestCmdFactory(responses map[string]originTestResponse) CmdFactory {
 	return func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		key := strings.TrimSpace(name + " " + strings.Join(args, " "))
 		response, ok := responses[key]
+		if !ok && strings.Contains(key, " --state draft ") {
+			// List fixtures are keyed by the open state; the draft listing
+			// answers from the same fixture unless it has its own entry.
+			response, ok = responses[strings.Replace(key, " --state draft ", " --state open ", 1)]
+		}
 		if !ok {
 			response = originTestResponse{stderr: "unexpected command: " + key, code: 1}
 		}
