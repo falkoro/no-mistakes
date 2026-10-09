@@ -47,7 +47,8 @@ func behindBaseContext(t *testing.T, ag *mockAgent, mergeable string) (*pipeline
 	gitCmd(t, dir, "push", "origin", "feature")
 
 	prURL := "https://github.com/test/repo/pull/42"
-	sctx := newTestContext(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	recordReviewApproval(t, sctx, headSHA)
 	sctx.Env = fakeCIGHMergeable(t, "OPEN", behindBaseGreenChecks, mergeable)
 	sctx.Run.PRURL = &prURL
 	sctx.Repo.UpstreamURL = upstream
@@ -77,9 +78,25 @@ func TestCIStep_GreenBehindPRTakesTheRebaseRepairOnceAfterTheBaseSettles(t *test
 	var prompts []string
 	ag := &mockAgent{name: "test", runFn: func(ctx context.Context, opts agent.RunOpts) (*agent.Result, error) {
 		prompts = append(prompts, opts.Prompt)
-		return &agent.Result{}, os.WriteFile(filepath.Join(opts.CWD, "rebased.txt"), []byte("rebased"), 0o644)
+		// The repair is a real clean rebase onto the advanced base.
+		gitCmd(t, opts.CWD, "fetch", "origin", "main")
+		gitCmd(t, opts.CWD, "rebase", "origin/main")
+		return &agent.Result{}, nil
 	}}
 	sctx, logs := behindBaseContext(t, ag, "MERGEABLE BEHIND")
+	originalHead := sctx.Run.HeadSHA
+	// The real upstream base advances after the push, which is what makes the PR BEHIND.
+	other := t.TempDir()
+	gitCmd(t, other, "clone", "-b", "main", sctx.Repo.UpstreamURL, ".")
+	gitCmd(t, other, "config", "user.name", "test")
+	gitCmd(t, other, "config", "user.email", "test@test.com")
+	if err := os.WriteFile(filepath.Join(other, "base-advance.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, other, "add", "-A")
+	gitCmd(t, other, "commit", "-m", "base advances")
+	gitCmd(t, other, "push", "origin", "main")
+	advancedBase := gitCmd(t, other, "rev-parse", "HEAD")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sctx.Ctx = ctx
@@ -114,6 +131,26 @@ func TestCIStep_GreenBehindPRTakesTheRebaseRepairOnceAfterTheBaseSettles(t *test
 	}
 	if polls != 1 {
 		t.Fatalf("polls before the repair = %d, want 1 (debounced); logs: %v", polls, *logs)
+	}
+	// The rewritten head sits on the advanced base, stays local, and has lost
+	// its review approval, so Push must re-approve it before publishing.
+	newHead := gitCmd(t, sctx.WorkDir, "rev-parse", "HEAD")
+	if newHead == originalHead {
+		t.Fatalf("head was not rewritten by the rebase; logs: %v", *logs)
+	}
+	gitCmd(t, sctx.WorkDir, "merge-base", "--is-ancestor", advancedBase, newHead)
+	if sctx.Run.HeadSHA != newHead {
+		t.Fatalf("run head = %s, want the rebased head %s", sctx.Run.HeadSHA, newHead)
+	}
+	if remote := gitCmd(t, sctx.WorkDir, "ls-remote", "origin", "refs/heads/feature"); !strings.HasPrefix(remote, originalHead) {
+		t.Fatalf("rebased head was pushed; remote feature = %q, want %s", remote, originalHead)
+	}
+	run, err := sctx.DB.GetRun(sctx.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.ReviewApprovedHeadSHA != nil && strings.TrimSpace(*run.ReviewApprovedHeadSHA) != "" {
+		t.Fatalf("review approval survived the rebase: %s", *run.ReviewApprovedHeadSHA)
 	}
 	if got := countLogs(*logs, ciChecksPassedMsg); got != 0 {
 		t.Fatalf("a BEHIND PR was reported as checks passed; logs: %v", *logs)
