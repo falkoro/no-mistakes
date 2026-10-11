@@ -48,6 +48,7 @@ var BuiltinProviders = []Provider{
 	ProviderAzureDevOps,
 	ProviderForgejo,
 	ProviderGitea,
+	ProviderOrigin,
 	ProviderUnknown,
 }
 
