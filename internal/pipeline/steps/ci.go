@@ -571,7 +571,9 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (outcome *pipeline.StepOutc
 				mergeabilityKnown = false
 			} else {
 				mergeConflict = mergeState.Conflict()
-				mergeBehind = mergeState.Behind()
+				// Unless ci.rebase_behind opts in, BEHIND reads as MERGEABLE:
+				// the green PR reports checks-passed and waits for a human.
+				mergeBehind = mergeState.Behind() && sctx.Config != nil && sctx.Config.CI.RebaseBehind
 				mergeabilityKnown = mergeState.Resolved()
 				if !mergeabilityKnown {
 					sctx.Log(fmt.Sprintf("mergeable state still pending: %s", mergeState))

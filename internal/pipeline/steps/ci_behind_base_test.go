@@ -17,7 +17,7 @@ import (
 const behindBaseGreenChecks = `[{"name":"build","state":"SUCCESS","bucket":"pass"},{"name":"test","state":"SUCCESS","bucket":"pass"}]`
 
 // behindBaseContext is a GitHub PR with green checks whose mergeability is
-// the given `<mergeable> <mergeStateStatus>` answer.
+// the given `<mergeable> <mergeStateStatus>` answer, with ci.rebase_behind on.
 func behindBaseContext(t *testing.T, ag *mockAgent, mergeable string) (*pipeline.StepContext, *[]string) {
 	t.Helper()
 	upstream := t.TempDir()
@@ -55,6 +55,7 @@ func behindBaseContext(t *testing.T, ag *mockAgent, mergeable string) (*pipeline
 	sctx.Run.Branch = "refs/heads/feature"
 	sctx.Config.CITimeout = 30 * time.Second
 	sctx.Config.AutoFix = config.AutoFix{CI: 3}
+	sctx.Config.CI.RebaseBehind = true
 	logs := &[]string{}
 	sctx.Log = func(s string) { *logs = append(*logs, s) }
 	return sctx, logs
@@ -256,5 +257,36 @@ func TestCIStep_GreenPRThatIsNotBehindIsNeverRebased(t *testing.T) {
 				t.Fatalf("want checks passed and no behind-base wait; logs: %v", *logs)
 			}
 		})
+	}
+}
+
+// With ci.rebase_behind unset (the default), a green BEHIND PR keeps today's
+// behavior: it reports checks-passed and is never rebased.
+func TestCIStep_GreenBehindPRReportsChecksPassedWhenRebaseBehindIsOff(t *testing.T) {
+	t.Parallel()
+	ag := &mockAgent{name: "test", runFn: func(context.Context, agent.RunOpts) (*agent.Result, error) {
+		t.Error("agent ran for a BEHIND PR with ci.rebase_behind off")
+		return &agent.Result{}, nil
+	}}
+	sctx, logs := behindBaseContext(t, ag, "MERGEABLE BEHIND")
+	sctx.Config.CI.RebaseBehind = false // the default when unset
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sctx.Ctx = ctx
+	polls := 0
+	step := &CIStep{
+		baseBranchTip: func(context.Context) (string, bool) { return "base-tip-1", true },
+		waitForNextPoll: func(ctx context.Context, _ time.Duration) error {
+			polls++
+			if polls >= 3 {
+				cancel()
+				return ctx.Err()
+			}
+			return nil
+		},
+	}
+	driveCI(t, step, sctx)
+	if countLogs(*logs, ciChecksPassedMsg) != 1 || countLogs(*logs, ciBehindBaseMsg) != 0 {
+		t.Fatalf("want checks passed and no behind-base wait; logs: %v", *logs)
 	}
 }
