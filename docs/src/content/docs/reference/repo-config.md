@@ -857,7 +857,7 @@ ci:
 GitHub reports `BEHIND` only when the base branch requires branches to be up to date before merging, so the merge button stays disabled even though every check is green and nothing conflicts.
 A PR that is behind a base without that rule reads `CLEAN`, merges as it is, and is unaffected by this key.
 
-- **`false` (default)** keeps the monitor's behavior from before the key existed: the PR reports `checks-passed` and waits for a human or a [`no-mistakes rerun`](/no-mistakes/reference/cli/#no-mistakes-rerun) to bring it up to date.
+- **`false` (default)** keeps the monitor's behavior from before the key existed: the PR reports `checks-passed` and waits for a human to bring it up to date.
 - **`true`** withholds `checks-passed` from such a PR. Once a second poll still sees it green and `BEHIND` at the same base tip, it takes the merge-conflict repair: rebase onto the PR base, revalidate from Review, and re-push through Push. A base that moves between those polls keeps the monitor waiting instead.
 
 Off by default because every rebase rewrites the head, so it always revalidates from Review (see [`ci.revalidate_repairs`](#cirevalidate_repairs)) and costs another full Review, Test, Document, and Lint pass each time the base advances.

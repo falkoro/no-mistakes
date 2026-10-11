@@ -739,8 +739,8 @@ type CI struct {
 	// reports mergeStateStatus BEHIND (its base requires branches to be up to
 	// date) through the merge-conflict repair, which revalidates from Review.
 	// Off by default: each base advance would then cost another full pass, so
-	// a green BEHIND PR reports checks-passed and waits for a human or a rerun
-	// (see VISION.md's cost rule).
+	// a green BEHIND PR reports checks-passed and waits for a human to bring
+	// it up to date (see VISION.md's cost rule).
 	RebaseBehind bool
 }
 
@@ -1547,11 +1547,11 @@ ci:
   review_bot_comments: on_failure
   # Whether the CI monitor rebases a green GitHub PR that GitHub reports BEHIND
   # because its base requires branches to be up to date. Defaults to false: the
-  # PR reports checks-passed and waits for a human or a rerun. Set true to have
-  # the monitor rebase it once the base holds still for one poll; each such
-  # rebase revalidates from Review, so it costs another full pipeline pass. A
-  # repository that sets ci.rebase_behind on its own default branch overrides
-  # this value.
+  # PR reports checks-passed and waits for a human to bring it up to date. Set
+  # true to have the monitor rebase it once the base holds still for one poll;
+  # each such rebase revalidates from Review, so it costs another full pipeline
+  # pass. A repository that sets ci.rebase_behind on its own default branch
+  # overrides this value.
   rebase_behind: false
 
 # Auto-fix commit subject template. Available variables: {{.Step}}, {{.Summary}}, and {{.Branch}}.
