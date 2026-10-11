@@ -3,7 +3,7 @@ title: Provider Integration
 description: Set up GitHub, GitLab, Forgejo, Bitbucket Cloud, Azure DevOps, Gitea, Cursor Origin, or a custom provider plugin for PR creation and CI monitoring.
 ---
 
-The PR and CI steps need to talk to your git host. Eight hosts are supported:
+The PR and CI steps need to talk to your git host. Seven hosts are supported:
 GitHub, GitLab, Forgejo, Bitbucket Cloud (`bitbucket.org`), Azure DevOps
 (`dev.azure.com` and legacy `*.visualstudio.com`), Gitea (almost always
 self-hosted), and Cursor Origin (`origin.cursor.com`). Any other host can be wired up on your machine with a
