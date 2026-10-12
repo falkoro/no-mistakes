@@ -2,10 +2,13 @@ package gitea
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -840,6 +843,126 @@ func TestGenerationProbeRunsOnce(t *testing.T) {
 	}
 	if probes != 1 {
 		t.Fatalf("probe ran %d times, want 1", probes)
+	}
+}
+
+// countProbes wraps factory and counts the generation probes (the two
+// `--help` argvs) it is asked to build.
+func countProbes(factory CmdFactory, probes *atomic.Int32) CmdFactory {
+	return func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if key := name + " " + strings.Join(args, " "); key == tea0Probe || key == tea1Probe {
+			probes.Add(1)
+		}
+		return factory(ctx, name, args...)
+	}
+}
+
+func TestGenerationProbeRunsOnceAcrossConcurrentCalls(t *testing.T) {
+	t.Parallel()
+
+	// Every PR/CI operation on a shared Host resolves the generation first,
+	// so concurrent first calls must share one probe, not race to run their
+	// own (or race on the cached answer, which -race reports).
+	var probes atomic.Int32
+	host := New(countProbes(giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea1Probe: {},
+		"tea api --host " + tea1Instance + " /user": {stdout: `{"login":"someuser"}`},
+	}), &probes), nil, "gitea.example.com", scm.TeaAccount{Instance: tea1Instance}, "owner/repo")
+
+	const callers = 8
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- host.Available(context.Background())
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Available() error = %v", err)
+		}
+	}
+	if got := probes.Load(); got != 1 {
+		t.Fatalf("probe ran %d times across %d concurrent callers, want 1", got, callers)
+	}
+}
+
+func TestGenerationProbeCancelledIsNotCached(t *testing.T) {
+	t.Parallel()
+
+	// A probe cut short by its caller's cancellation says nothing about the
+	// binary: it must surface the context error (not "unrecognized tea CLI",
+	// and not fall through to the tea 0.x probe), and the next call with a
+	// live context must probe again rather than reuse that failed attempt.
+	var probes atomic.Int32
+	factory := countProbes(giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea1Probe: {},
+		"tea api --host " + tea1Instance + " /user": {stdout: `{"login":"someuser"}`},
+	}), &probes)
+	ctx, cancel := context.WithCancel(context.Background())
+	host := New(func(c context.Context, name string, args ...string) *exec.Cmd {
+		cmd := factory(c, name, args...)
+		if c == ctx {
+			cancel() // interrupt the probe the cancelled call is running
+		}
+		return cmd
+	}, nil, "gitea.example.com", scm.TeaAccount{Instance: tea1Instance}, "owner/repo")
+
+	if err := host.Available(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Available(cancelled) error = %v, want context.Canceled", err)
+	}
+	if got := probes.Load(); got != 1 {
+		t.Fatalf("cancelled call ran %d probes, want 1 (no tea 0.x probe after cancellation)", got)
+	}
+	if err := host.Available(context.Background()); err != nil {
+		t.Fatalf("Available() after cancellation error = %v, want nil", err)
+	}
+	if got := probes.Load(); got != 2 {
+		t.Fatalf("probe ran %d times in total, want 2 (re-probed after cancellation)", got)
+	}
+}
+
+func TestGenerationProbeUnrecognizedIsNotCached(t *testing.T) {
+	t.Parallel()
+
+	// "unrecognized tea CLI" must not stick: once the binary answers a probe
+	// (e.g. the operator installed a real tea), the next call re-probes and
+	// proceeds instead of refusing for the rest of the Host's life.
+	var probes atomic.Int32
+	var answering atomic.Bool
+	unrecognized := giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea0Probe: {stderr: "unknown flag: --output", code: 2},
+	})
+	tea1 := giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea1Probe: {},
+		"tea api --host " + tea1Instance + " /user": {stdout: `{"login":"someuser"}`},
+	})
+	host := New(countProbes(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if answering.Load() {
+			return tea1(ctx, name, args...)
+		}
+		return unrecognized(ctx, name, args...)
+	}, &probes), nil, "gitea.example.com", scm.TeaAccount{Instance: tea1Instance}, "owner/repo")
+
+	if err := host.Available(context.Background()); err == nil || !strings.Contains(err.Error(), "unrecognized tea CLI") {
+		t.Fatalf("Available() error = %v, want unrecognized tea CLI", err)
+	}
+	if got := probes.Load(); got != 2 {
+		t.Fatalf("refused call ran %d probes, want both (2)", got)
+	}
+	answering.Store(true)
+	if err := host.Available(context.Background()); err != nil {
+		t.Fatalf("Available() once tea answers error = %v, want nil", err)
+	}
+	if got := probes.Load(); got != 3 {
+		t.Fatalf("probe ran %d times in total, want 3 (re-probed after the refusal)", got)
 	}
 }
 
