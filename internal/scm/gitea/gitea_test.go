@@ -86,7 +86,7 @@ func TestCapabilitiesDeclinesMergeableState(t *testing.T) {
 	// Gitea's PR `mergeable` field has a documented upstream reliability bug
 	// (go-gitea/gitea#25849): it can stick `false` after a conflict is
 	// actually resolved. Trusting it is worse than declining the capability.
-	host := New(nil, nil, "", "", "")
+	host := New(nil, nil, "", scm.TeaAccount{}, "")
 	caps := host.Capabilities()
 	if caps.MergeableState {
 		t.Fatal("Capabilities().MergeableState = true, want false")
@@ -99,7 +99,7 @@ func TestCapabilitiesDeclinesMergeableState(t *testing.T) {
 func TestGetMergeableStateReturnsErrUnsupported(t *testing.T) {
 	t.Parallel()
 
-	host := New(nil, nil, "", "", "")
+	host := New(nil, nil, "", scm.TeaAccount{}, "")
 	if _, err := host.GetMergeableState(context.Background(), &scm.PR{Number: "1"}); err != scm.ErrUnsupported {
 		t.Fatalf("GetMergeableState() error = %v, want scm.ErrUnsupported", err)
 	}
@@ -108,7 +108,7 @@ func TestGetMergeableStateReturnsErrUnsupported(t *testing.T) {
 func TestAvailableFailsClosedWithoutConfiguredLogin(t *testing.T) {
 	t.Parallel()
 
-	host := New(giteaTestCmdFactory(nil), func() bool { return true }, "gitea.example.com", "", "owner/repo")
+	host := New(giteaTestCmdFactory(nil), func() bool { return true }, "gitea.example.com", scm.TeaAccount{}, "owner/repo")
 	if err := host.Available(context.Background()); err == nil {
 		t.Fatal("Available() error = nil, want error when no tea login is configured for the host")
 	}
@@ -119,7 +119,7 @@ func TestAvailableScopesToConfiguredLogin(t *testing.T) {
 
 	host := New(giteaTestCmdFactory(map[string]giteaTestResponse{
 		"tea api --login work /user": {stdout: `{"login":"someuser"}`},
-	}), func() bool { return true }, "gitea.example.com", "work", "owner/repo")
+	}), func() bool { return true }, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	if err := host.Available(context.Background()); err != nil {
 		t.Fatalf("Available() error = %v, want nil", err)
@@ -131,7 +131,7 @@ func TestAvailableReturnsErrorOnAuthFailure(t *testing.T) {
 
 	host := New(giteaTestCmdFactory(map[string]giteaTestResponse{
 		"tea api --login work /user": {stderr: "invalid username, password or token\n", code: 1},
-	}), func() bool { return true }, "gitea.example.com", "work", "owner/repo")
+	}), func() bool { return true }, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	if err := host.Available(context.Background()); err == nil {
 		t.Fatal("Available() error = nil, want error on auth failure")
@@ -141,7 +141,7 @@ func TestAvailableReturnsErrorOnAuthFailure(t *testing.T) {
 func TestAvailableReturnsErrorWhenCLIMissing(t *testing.T) {
 	t.Parallel()
 
-	host := New(giteaTestCmdFactory(nil), func() bool { return false }, "gitea.example.com", "work", "owner/repo")
+	host := New(giteaTestCmdFactory(nil), func() bool { return false }, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 	if err := host.Available(context.Background()); err == nil {
 		t.Fatal("Available() error = nil, want error when tea CLI is missing")
 	}
@@ -155,7 +155,7 @@ func TestFindPRMatchesByHeadBranch(t *testing.T) {
 			stdout: `[{"index":"3","title":"other","state":"open","url":"https://gitea.example.com/owner/repo/pulls/3","head":"other-branch","base":"main"},` +
 				`{"index":"7","title":"mine","state":"open","url":"https://gitea.example.com/owner/repo/pulls/7","head":"feature/x","base":"main"}]`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err != nil {
@@ -179,7 +179,7 @@ func TestFindPRFiltersByBaseBranch(t *testing.T) {
 		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {
 			stdout: `[{"index":"1","title":"a","state":"open","url":"https://gitea.example.com/owner/repo/pulls/1","head":"feature/x","base":"release/1.0"}]`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err != nil {
@@ -197,7 +197,7 @@ func TestFindPRReturnsNilWhenNoneOpen(t *testing.T) {
 		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {
 			stdout: `[]`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err != nil {
@@ -219,7 +219,7 @@ func TestFindPRReturnsErrorOnMalformedJSON(t *testing.T) {
 		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {
 			stdout: `[{"index":"7","title":"mine"`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err == nil {
@@ -241,7 +241,7 @@ func TestFindPRReturnsErrorOnNonJSONOutput(t *testing.T) {
 		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {
 			stdout: "a new release of tea is available\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err == nil {
@@ -260,7 +260,7 @@ func TestFindPRReturnsCLIError(t *testing.T) {
 			stderr: "gitea unavailable\n",
 			code:   1,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.FindPR(context.Background(), "feature/x", "main")
 	if err == nil {
@@ -288,7 +288,7 @@ func TestCreatePRUsesFindPRForStructuredResult(t *testing.T) {
 		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {
 			stdout: `[{"index":"9","title":"t","state":"open","url":"http://gitea.example.com/owner/repo/pulls/9","head":"feature/x","base":"main"}]`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.CreatePR(context.Background(), "feature/x", "main", scm.PRContent{Title: "t", Body: "See http://example.com/evidence for details"})
 	if err != nil {
@@ -310,7 +310,7 @@ func TestCreatePRFallsBackToOutputScanWhenRelistFails(t *testing.T) {
 			stderr: "boom\n",
 			code:   1,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.CreatePR(context.Background(), "feature/x", "main", scm.PRContent{Title: "t", Body: "body"})
 	if err != nil {
@@ -329,7 +329,7 @@ func TestCreatePRReturnsCLIError(t *testing.T) {
 			stderr: "gitea unavailable\n",
 			code:   1,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr, err := host.CreatePR(context.Background(), "feature/x", "main", scm.PRContent{Title: "t", Body: "body"})
 	if err == nil {
@@ -350,7 +350,7 @@ func TestUpdatePRUsesNumberWhenPresent(t *testing.T) {
 		"tea pulls edit 7 --repo owner/repo --login work --title updated --description body": {
 			stdout: "updated\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr := &scm.PR{Number: "7", URL: "http://gitea.example.com/owner/repo/pulls/7"}
 	updated, err := host.UpdatePR(context.Background(), pr, scm.PRContent{Title: "updated", Body: "body"})
@@ -369,7 +369,7 @@ func TestUpdatePRFallsBackToNumberFromURL(t *testing.T) {
 		"tea pulls edit 7 --repo owner/repo --login work --title updated --description body": {
 			stdout: "updated\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	pr := &scm.PR{URL: "http://gitea.example.com/owner/repo/pulls/7"}
 	if _, err := host.UpdatePR(context.Background(), pr, scm.PRContent{Title: "updated", Body: "body"}); err != nil {
@@ -384,7 +384,7 @@ func TestSetPRBaseBranchPatchesPullViaTeaAPI(t *testing.T) {
 		"tea api --login work --method PATCH --field base=epic/feature /repos/owner/repo/pulls/7": {
 			stdout: `{"index":7,"base":{"ref":"epic/feature"}}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	if err := host.SetPRBaseBranch(context.Background(), &scm.PR{Number: "7"}, "epic/feature"); err != nil {
 		t.Fatalf("SetPRBaseBranch() error = %v", err)
@@ -398,7 +398,7 @@ func TestSetPRBaseBranchFallsBackToNumberFromURL(t *testing.T) {
 		"tea api --login work --method PATCH --field base=epic/feature /repos/owner/repo/pulls/7": {
 			stdout: `{"index":7}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	if err := host.SetPRBaseBranch(context.Background(), &scm.PR{URL: "https://gitea.example.com/owner/repo/pulls/7"}, "epic/feature"); err != nil {
 		t.Fatalf("SetPRBaseBranch() error = %v", err)
@@ -408,7 +408,7 @@ func TestSetPRBaseBranchFallsBackToNumberFromURL(t *testing.T) {
 func TestSetPRBaseBranchFailsClosedWithoutIdentity(t *testing.T) {
 	t.Parallel()
 
-	host := New(giteaTestCmdFactory(nil), nil, "gitea.example.com", "work", "owner/repo")
+	host := New(giteaTestCmdFactory(nil), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 	if err := host.SetPRBaseBranch(context.Background(), &scm.PR{}, "epic/feature"); err == nil {
 		t.Fatal("SetPRBaseBranch() with no PR identity: expected error, got nil")
 	}
@@ -423,7 +423,7 @@ func TestGetPRStateReportsMergedBeforeClosed(t *testing.T) {
 		"tea pulls 7 --repo owner/repo --login work --output json": {
 			stdout: `{"index":7,"state":"closed","hasMerged":true}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	state, err := host.GetPRState(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -441,7 +441,7 @@ func TestGetPRStateReportsClosedWhenNotMerged(t *testing.T) {
 		"tea pulls 7 --repo owner/repo --login work --output json": {
 			stdout: `{"index":7,"state":"closed","hasMerged":false}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	state, err := host.GetPRState(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -459,7 +459,7 @@ func TestGetPRStateReportsOpen(t *testing.T) {
 		"tea pulls 7 --repo owner/repo --login work --output json": {
 			stdout: `{"index":7,"state":"open","hasMerged":false}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	state, err := host.GetPRState(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -484,7 +484,7 @@ func TestGetChecksFetchesJobsForMatchingHeadRun(t *testing.T) {
 			stdout: `{"jobs":[{"id":10,"name":"build","status":"completed","conclusion":"failure","head_sha":"abc123","html_url":"http://gitea.example.com/owner/repo/actions/runs/10/jobs/10","completed_at":"2026-08-20T06:34:50Z"},` +
 				`{"id":11,"name":"build2","status":"completed","conclusion":"success","head_sha":"abc123","html_url":"http://gitea.example.com/owner/repo/actions/runs/10/jobs/11","completed_at":"2026-08-20T06:34:51Z"}]}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -528,7 +528,7 @@ func TestGetChecksReturnsNilWhenLatestRunPredatesTheCurrentHeadSHA(t *testing.T)
 		"tea api --login work /repos/owner/repo/actions/runs/10/jobs": {
 			stdout: `{"jobs":[{"id":10,"name":"build","status":"completed","conclusion":"success","head_sha":"oldsha"}]}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -549,7 +549,7 @@ func TestGetChecksReturnsNilWhenNoRunsExistYet(t *testing.T) {
 		"tea actions runs list --repo owner/repo --login work --branch feature/x --output json": {
 			stdout: `[]`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -580,7 +580,7 @@ func TestGetChecksSelectsHighestIDRunWhenListOrderIsNotNewestFirst(t *testing.T)
 		"tea api --login work /repos/owner/repo/actions/runs/25/jobs": {
 			stdout: `{"jobs":[{"id":25,"name":"build","status":"completed","conclusion":"success","head_sha":"abc123"}]}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -613,7 +613,7 @@ func TestGetChecksSearchesPastAHigherIDRunForAnotherCommit(t *testing.T) {
 		"tea api --login work /repos/owner/repo/actions/runs/10/jobs": {
 			stdout: `{"jobs":[{"id":10,"name":"build","status":"completed","conclusion":"failure","head_sha":"abc123"}]}`,
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "7"})
 	if err != nil {
@@ -640,7 +640,7 @@ func TestFetchFailedCheckLogsStripsHeaderAndTargetsFailedJob(t *testing.T) {
 		"tea actions runs logs 10 --job 10 --repo owner/repo --login work": {
 			stdout: "Logs for job 10:\n---\nexit status 1\nJob 'build' failed\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckLogs(context.Background(), &scm.PR{Number: "7"}, "", "", []string{"build"})
 	if err != nil {
@@ -666,7 +666,7 @@ func TestFetchFailedCheckTargetLogsAggregatesEverySelectedJob(t *testing.T) {
 		},
 		"tea actions runs logs 10 --job 10 --repo owner/repo --login work": {stdout: "Logs for job 10:\n---\nbuild failed\n"},
 		"tea actions runs logs 10 --job 11 --repo owner/repo --login work": {stdout: "Logs for job 11:\n---\nlint failed\n"},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckTargetLogs(context.Background(), &scm.PR{Number: "7"}, "", "abc123", []scm.CheckTarget{{Name: "build", ProviderID: "gitea-job:10"}, {Name: "lint", ProviderID: "gitea-job:11"}})
 	if err != nil {
@@ -686,7 +686,7 @@ func TestFetchFailedCheckTargetLogsReturnsPartialLogsWithRetrievalError(t *testi
 		"tea api --login work /repos/owner/repo/actions/runs/10/jobs":                           {stdout: `{"jobs":[{"id":10,"name":"build","status":"completed","conclusion":"failure","head_sha":"abc123"},{"id":11,"name":"lint","status":"completed","conclusion":"failure","head_sha":"abc123"}]}`},
 		"tea actions runs logs 10 --job 10 --repo owner/repo --login work":                      {stdout: "Logs for job 10:\n---\nbuild failed\n"},
 		"tea actions runs logs 10 --job 11 --repo owner/repo --login work":                      {stderr: "expired", code: 1},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckTargetLogs(context.Background(), &scm.PR{Number: "7"}, "", "abc123", []scm.CheckTarget{{ProviderID: "gitea-job:10"}, {ProviderID: "gitea-job:11"}})
 	if err != nil || len(logs) != 2 || logs[0].Output != "build failed" || logs[1].Err == nil || !strings.Contains(logs[1].Err.Error(), "job 11") {
@@ -701,7 +701,7 @@ func TestFetchFailedCheckTargetLogsReportsMissingSelectedJob(t *testing.T) {
 		"tea pulls 7 --repo owner/repo --login work --output json":                              {stdout: `{"index":7,"state":"open","head":"feature/x","headSha":"abc123"}`},
 		"tea actions runs list --repo owner/repo --login work --branch feature/x --output json": {stdout: `[{"id":"10"}]`},
 		"tea api --login work /repos/owner/repo/actions/runs/10/jobs":                           {stdout: `{"jobs":[{"id":10,"name":"build","status":"completed","conclusion":"failure","head_sha":"abc123"}]}`},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckTargetLogs(context.Background(), &scm.PR{Number: "7"}, "", "abc123", []scm.CheckTarget{{ProviderID: "gitea-job:999"}})
 	if err != nil || len(logs) != 1 || logs[0].Err == nil || !strings.Contains(logs[0].Err.Error(), "gitea-job:999") {
@@ -726,7 +726,7 @@ func TestFetchFailedCheckLogsSelectsHighestIDRunWhenListOrderIsNotNewestFirst(t 
 		"tea actions runs logs 25 --job 25 --repo owner/repo --login work": {
 			stdout: "Logs for job 25:\n---\nexit status 1\nJob 'build' failed\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckLogs(context.Background(), &scm.PR{Number: "7"}, "", "", []string{"build"})
 	if err != nil {
@@ -761,7 +761,7 @@ func TestFetchFailedCheckLogsSearchesPastAHigherIDRunForAnotherCommit(t *testing
 		"tea actions runs logs 10 --job 10 --repo owner/repo --login work": {
 			stdout: "Logs for job 10:\n---\nexit status 1\nJob 'build' failed\n",
 		},
-	}), nil, "gitea.example.com", "work", "owner/repo")
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 
 	logs, err := host.FetchFailedCheckLogs(context.Background(), &scm.PR{Number: "7"}, "", "abc123", []string{"build"})
 	if err != nil {
@@ -775,7 +775,7 @@ func TestFetchFailedCheckLogsSearchesPastAHigherIDRunForAnotherCommit(t *testing
 func TestFetchFailedCheckLogsReturnsEmptyForNoFailingNames(t *testing.T) {
 	t.Parallel()
 
-	host := New(giteaTestCmdFactory(nil), nil, "gitea.example.com", "work", "owner/repo")
+	host := New(giteaTestCmdFactory(nil), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
 	logs, err := host.FetchFailedCheckLogs(context.Background(), &scm.PR{Number: "7"}, "", "", nil)
 	if err != nil {
 		t.Fatalf("FetchFailedCheckLogs() error = %v", err)
@@ -785,17 +785,197 @@ func TestFetchFailedCheckLogsReturnsEmptyForNoFailingNames(t *testing.T) {
 	}
 }
 
+// The tea 1.0 tests below mirror the tea 0.x ones above with tea 1.0's argv
+// and JSON shapes (gitea/tea#1126): --host instead of --login, --json=<fields>
+// instead of --output json/--fields, `pr`/`run` instead of `pulls`/`actions
+// runs`, integer `number`/`id`, and `head_sha`/`merged` on the PR.
+
+const tea1Instance = "https://gitea.example.com"
+
+func tea1Host(responses map[string]giteaTestResponse) *Host {
+	responses[tea1Probe] = giteaTestResponse{}
+	return New(giteaTestCmdFactory(responses), nil, "gitea.example.com", scm.TeaAccount{Login: "work", Instance: tea1Instance}, "owner/repo")
+}
+
+func TestGenerationProbeRefusesAnUnrecognizedTea(t *testing.T) {
+	t.Parallel()
+
+	// A binary that passes neither generation's probe must fail closed with
+	// a clear error before any PR call, never be guessed at.
+	host := New(giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea0Probe:                    {stderr: "unknown flag: --output", code: 2},
+		"tea api --login work /user": {stdout: `{"login":"someuser"}`},
+		"tea pulls list --repo owner/repo --login work --fields index,title,state,url,head,base --output json": {stdout: `[]`},
+	}), func() bool { return true }, "gitea.example.com", scm.TeaAccount{Login: "work", Instance: tea1Instance}, "owner/repo")
+
+	for name, call := range map[string]func() error{
+		"Available": func() error { return host.Available(context.Background()) },
+		"FindPR":    func() error { _, err := host.FindPR(context.Background(), "feature/x", "main"); return err },
+	} {
+		if err := call(); err == nil || !strings.Contains(err.Error(), "unrecognized tea CLI") {
+			t.Fatalf("%s() error = %v, want unrecognized tea CLI", name, err)
+		}
+	}
+}
+
+func TestGenerationProbeRunsOnce(t *testing.T) {
+	t.Parallel()
+
+	probes := 0
+	factory := giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea1Probe: {},
+		"tea api --host " + tea1Instance + " /user": {stdout: `{"login":"someuser"}`},
+	})
+	host := New(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if strings.Contains(strings.Join(args, " "), "--help") {
+			probes++
+		}
+		return factory(ctx, name, args...)
+	}, nil, "gitea.example.com", scm.TeaAccount{Instance: tea1Instance}, "owner/repo")
+
+	for i := 0; i < 3; i++ {
+		if err := host.Available(context.Background()); err != nil {
+			t.Fatalf("Available() error = %v", err)
+		}
+	}
+	if probes != 1 {
+		t.Fatalf("probe ran %d times, want 1", probes)
+	}
+}
+
+func TestTea1AvailableScopesToConfiguredInstance(t *testing.T) {
+	t.Parallel()
+
+	host := tea1Host(map[string]giteaTestResponse{
+		"tea api --host " + tea1Instance + " /user": {stdout: `{"login":"someuser"}`},
+	})
+	if err := host.Available(context.Background()); err != nil {
+		t.Fatalf("Available() error = %v, want nil", err)
+	}
+}
+
+func TestTea1AvailableRefusesAMissingInstance(t *testing.T) {
+	t.Parallel()
+
+	// tea 1.0 does not read tea 0.x logins, and an empty --host would make
+	// it fall back to another instance, so a tea 0.x login alone must not
+	// satisfy a tea 1.0 binary.
+	host := New(giteaTestCmdFactory(map[string]giteaTestResponse{
+		tea1Probe:                    {},
+		"tea api --host  /user":      {stdout: `{"login":"someone-else"}`},
+		"tea api --login work /user": {stdout: `{"login":"someuser"}`},
+	}), nil, "gitea.example.com", scm.TeaAccount{Login: "work"}, "owner/repo")
+
+	err := host.Available(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "tea auth login --host https://gitea.example.com") {
+		t.Fatalf("Available() error = %v, want a tea 1.0 setup hint", err)
+	}
+}
+
+func TestTea1PRLifecycle(t *testing.T) {
+	t.Parallel()
+
+	host := tea1Host(map[string]giteaTestResponse{
+		"tea pr list --repo owner/repo --host " + tea1Instance + " --json=number,state,url,head,base": {
+			stdout: `[{"number":3,"state":"open","url":"https://gitea.example.com/owner/repo/pulls/3","head":"other","base":"main"},` +
+				`{"number":9,"state":"open","url":"https://gitea.example.com/owner/repo/pulls/9","head":"feature/x","base":"main"}]`,
+		},
+		"tea pr create --repo owner/repo --host " + tea1Instance + " --head feature/x --base main --title t --body See http://example.com/x": {
+			stdout: "https://gitea.example.com/owner/repo/pulls/9\n",
+		},
+		"tea pr edit 9 --repo owner/repo --host " + tea1Instance + " --title t2 --body b2": {},
+		// --raw-field, not tea 1.0's typed --field: a branch named 123 stays a string.
+		"tea api --host " + tea1Instance + " --method PATCH --raw-field base=123 /repos/owner/repo/pulls/9": {stdout: `{}`},
+		"tea pr view 9 --repo owner/repo --host " + tea1Instance + " --json=number,state,url,head,base,head_sha,merged": {
+			stdout: `{"number":9,"state":"closed","url":"https://gitea.example.com/owner/repo/pulls/9","head":"feature/x","base":"main","head_sha":"abc123","merged":true}`,
+		},
+	})
+	ctx := context.Background()
+
+	pr, err := host.CreatePR(ctx, "feature/x", "main", scm.PRContent{Title: "t", Body: "See http://example.com/x"})
+	if err != nil || pr == nil || pr.Number != "9" || pr.URL != "https://gitea.example.com/owner/repo/pulls/9" || pr.BaseBranch != "main" {
+		t.Fatalf("CreatePR() = (%+v, %v), want PR #9 from the re-list", pr, err)
+	}
+	if _, err := host.UpdatePR(ctx, pr, scm.PRContent{Title: "t2", Body: "b2"}); err != nil {
+		t.Fatalf("UpdatePR() error = %v", err)
+	}
+	if err := host.SetPRBaseBranch(ctx, pr, "123"); err != nil {
+		t.Fatalf("SetPRBaseBranch() error = %v", err)
+	}
+	if state, err := host.GetPRState(ctx, pr); err != nil || state != scm.PRStateMerged {
+		t.Fatalf("GetPRState() = (%q, %v), want MERGED", state, err)
+	}
+}
+
+func TestTea1FindPRReturnsErrorOnMalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	// tea 0.x's string index must not parse as tea 1.0's integer number.
+	host := tea1Host(map[string]giteaTestResponse{
+		"tea pr list --repo owner/repo --host " + tea1Instance + " --json=number,state,url,head,base": {
+			stdout: `[{"number":"9","head":"feature/x","base":"main"}]`,
+		},
+	})
+	if pr, err := host.FindPR(context.Background(), "feature/x", "main"); err == nil || !strings.Contains(err.Error(), "tea pr list") {
+		t.Fatalf("FindPR() = (%+v, %v), want a tea pr list JSON error", pr, err)
+	}
+}
+
+func TestTea1ChecksAndLogsUseTheHighestMatchingRun(t *testing.T) {
+	t.Parallel()
+
+	host := tea1Host(map[string]giteaTestResponse{
+		"tea pr view 7 --repo owner/repo --host " + tea1Instance + " --json=number,state,url,head,base,head_sha,merged": {
+			stdout: `{"number":7,"state":"open","head":"feature/x","head_sha":"abc123","merged":false}`,
+		},
+		"tea run list --repo owner/repo --host " + tea1Instance + " --branch feature/x --json=id": {
+			stdout: `[{"id":10},{"id":25},{"id":9}]`,
+		},
+		"tea api --host " + tea1Instance + " /repos/owner/repo/actions/runs/25/jobs": {
+			stdout: `{"jobs":[{"id":250,"name":"build","status":"completed","conclusion":"success","head_sha":"zzz999"}]}`,
+		},
+		"tea api --host " + tea1Instance + " /repos/owner/repo/actions/runs/10/jobs": {
+			stdout: `{"jobs":[{"id":100,"name":"build","status":"completed","conclusion":"failure","head_sha":"abc123"}]}`,
+		},
+		// tea 1.0 sends its "Job N" banner to stderr; stdout is the log, and
+		// a `---` line inside it is log content, not a banner to strip.
+		"tea run logs 10 --job 100 --repo owner/repo --host " + tea1Instance: {
+			stdout: "step 1\n---\nexit status 1\n",
+			stderr: "Job 100: build\n",
+		},
+	})
+	ctx := context.Background()
+
+	checks, err := host.GetChecks(ctx, &scm.PR{Number: "7"})
+	if err != nil || len(checks) != 1 || checks[0].Bucket != scm.CheckBucketFail || checks[0].ProviderID != "gitea-job:100" {
+		t.Fatalf("GetChecks() = (%+v, %v), want run 10's failing job", checks, err)
+	}
+	logs, err := host.FetchFailedCheckLogs(ctx, &scm.PR{Number: "7"}, "", "", []string{"build"})
+	if err != nil || logs != "step 1\n---\nexit status 1" {
+		t.Fatalf("FetchFailedCheckLogs() = (%q, %v), want the whole log", logs, err)
+	}
+}
+
 type giteaTestResponse struct {
 	stdout string
 	stderr string
 	code   int
 }
 
+const (
+	tea1Probe = "tea pr list --json=number --help"
+	tea0Probe = "tea pulls list --output json --help"
+)
+
+// giteaTestCmdFactory answers each command from responses and fails any other
+// with exit 1. tea 0.x's generation probe succeeds unless responses overrides
+// it, so a test that names no generation exercises tea 0.x; a tea 1.0 test
+// answers tea1Probe, which is tried first.
 func giteaTestCmdFactory(responses map[string]giteaTestResponse) CmdFactory {
 	return func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		key := strings.TrimSpace(name + " " + strings.Join(args, " "))
 		response, ok := responses[key]
-		if !ok {
+		if !ok && key != tea0Probe {
 			response = giteaTestResponse{stderr: "unexpected command: " + key, code: 1}
 		}
 		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=TestGiteaHelperProcess", "--", key)
